@@ -4,6 +4,8 @@ import urllib
 import json
 import requests
 import time
+import os
+from collections import Counter
 from async_promises import Promise
 
 
@@ -45,39 +47,41 @@ class GraphQLClient:
         return req
 
 
-endpoint = 'https://api.graph.cool/simple/v1/'
+
+
+endpoint = 'https://api.graph.cool/simple/v1/{}'.format(os.environ['graphCoolEndpoint'])
 gql = GraphQLClient(endpoint=endpoint)
 
 
 ############ examples
-query = """
-{
-  allPredictions {
-    prediction
-  }
-}
-"""
-res = gql.query(query)
-
-mutation = """
-{
-  createPrediction(prediction: 1000) {
-    id
-    prediction
-  }
-}
-"""
-res2 = gql.mutate(mutation)
-
-mutation = """
-{
-  createPrediction(prediction: 1000) {
-    id
-    prediction
-  }
-}
-"""
-res3 = gql.mutate(mutation)
+# query = """
+# {
+#   allPredictions {
+#     prediction
+#   }
+# }
+# """
+# res = gql.query(query)
+#
+# mutation = """
+# {
+#   createPrediction(prediction: 1000) {
+#     id
+#     prediction
+#   }
+# }
+# """
+# res2 = gql.mutate(mutation)
+#
+# mutation = """
+# {
+#   createPrediction(prediction: 1000) {
+#     id
+#     prediction
+#   }
+# }
+# """
+# res3 = gql.mutate(mutation)
 ###################################### end examples
 
 
@@ -90,11 +94,6 @@ with open('./brisbane_parcels_smaller.geojson') as f:
 
 with open('./brisbane_gis_address.geojson') as f:
     addresses = json.loads(f.read())
-
-
-g = gdata['features'][0]
-a = addresses['features'][0]
-
 #####################################
 
 
@@ -222,41 +221,54 @@ def createGeojson(resolve, reject, results, geojsonAddress):
 # ).then(lambda res: print(res.text))
 
 
-promiseAll = Promise.all([
-    Promise(lambda resolve, reject: createGeojsonGeometry(resolve, reject, geojsonGeometry)),
-    Promise(lambda resolve, reject: createGeojsonProperties(resolve, reject, geojsonAddress)),
-]).then(
-    lambda results: Promise(lambda resolve, reject: createGeojson(resolve, reject, results, geojsonAddress))
-).then(lambda res: print(res.text))
+# promiseAll = Promise.all([
+#     Promise(lambda resolve, reject: createGeojsonGeometry(resolve, reject, geojsonGeometry)),
+#     Promise(lambda resolve, reject: createGeojsonProperties(resolve, reject, geojsonAddress)),
+# ]).then(
+#     lambda results: Promise(lambda resolve, reject: createGeojson(resolve, reject, results, geojsonAddress))
+# ).then(lambda res: print(res.text))
 
 
-def match_then_post_to_graphql(geojsonAddress):
+# ## batch requests, could put too much load on server
+# def match_then_post_to_graphql(geojsonAddress):
+#     try:
+#         geojsonGeometry = list(filter(lambda x: x['properties']['LOTPLAN'] == geojsonAddress['properties']['LOTPLAN'], gdat['features']))[0]
+#         return Promise.all([
+#             Promise(lambda resolve, reject: createGeojsonGeometry(resolve, reject, geojsonGeometry)),
+#             Promise(lambda resolve, reject: createGeojsonProperties(resolve, reject, geojsonAddress)),
+#         ]).then(
+#             lambda results: Promise(lambda resolve, reject: createGeojson(resolve, reject, results, geojsonAddress))
+#         ).then(lambda res: print(res.text))
+#     except IndexError as Err:
+#         print('No match found for ' + geojsonAddress['properties']['ADDRESS'])
+#         print(Err)
+#
+#
+# list(map(match_then_post_to_graphql, address['features'][:10]))
+#
+
+
+gdataKeys = [g['properties']['LOTPLAN'] for g in gdata['features']]
+gdataDict = dict(zip(gdataKeys, gdata['features']))
+
+C = Counter(gdataKeys)
+# theres a number of geojsonGeometries associated with 1 lotPlan
+# meaning we will need to add in these parcels later
+## individual requests, less load on server since it takes a small delay to filter
+## and match the geojsonAddress with geojsonGeometry
+for i, a in enumerate(addresses['features'][45000:50000]):
     try:
-        geojsonGeometry = list(filter(lambda x: x['properties']['LOTPLAN'] == geojsonAddress['properties']['LOTPLAN'], gdat['features']))[0]
-        return Promise.all([
-            Promise(lambda resolve, reject: createGeojsonGeometry(resolve, reject, geojsonGeometry)),
-            Promise(lambda resolve, reject: createGeojsonProperties(resolve, reject, geojsonAddress)),
-        ]).then(
-            lambda results: Promise(lambda resolve, reject: createGeojson(resolve, reject, results, geojsonAddress))
-        ).then(lambda res: print(res.text))
-    except IndexError as Err:
-        print('No match found for ' + geojsonAddress['properties']['ADDRESS'])
-        print(Err)
-
-
-list(map(match_then_post_to_graphql, address['features'][:10]))
-
-
-for a in address['features'][50:1000]:
-    try:
-        g = list(filter(lambda x: x['properties']['LOTPLAN'] == a['properties']['LOTPLAN'], gdat['features']))[0]
-    except:
+        g = gdataDict[a['properties']['LOTPLAN']]
+    except KeyError:
         print('NO MATCH:', a['properties']['ADDRESS'])
         continue
+    except KeyboardInterrupt:
+        print(KeyboardInterrupt)
+        break
 
     geojsonAddress = a
     geojsonGeometry = g
-    print(a['properties']['ADDRESS'])
+    print(f'({i}):    ', a['properties']['ADDRESS'])
 
     promiseAll = Promise.all([
         Promise(lambda resolve, reject: createGeojsonGeometry(resolve, reject, geojsonGeometry)),
@@ -264,6 +276,7 @@ for a in address['features'][50:1000]:
     ]).then(
         lambda results: Promise(lambda resolve, reject: createGeojson(resolve, reject, results, geojsonAddress))
     ).then(lambda res: print(res.text))
+    time.sleep(0.1)
 
 
 
@@ -290,4 +303,5 @@ if false:
         except:
             print('NO MATCH:', g['properties']['LOTPLAN'])
             continue
+
 

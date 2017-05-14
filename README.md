@@ -21,9 +21,8 @@ Python, and the pandas library is much better at this.
 
 
 
-
-
-
+### QGIS
+Parcel data is from: DP_PROP_LOCATION_INDEXQLD
 
 
 
